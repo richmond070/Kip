@@ -1,0 +1,106 @@
+business logic for transaction creation
+
+// // Check if user has permission to create transactions for this business
+        // if (req.user?.businessId !== businessId && req.user?.role !== 'admin') {
+        //     res.status(403).json({
+        //         success: false,
+        //         message: 'Unauthorized to create transactions for this business'
+        //     });
+        //     return;
+        // }
+
+        // Verify business exists
+        // const business = await Business.findById(businessId);
+        // if (!business) {
+        //     res.status(404).json({
+        //         success: false,
+        //         message: 'Business not found'
+        //     });
+        //     return;
+        // }
+
+        // // Verify product exists if productId is provided
+        // if (productId) {
+        //     const product = await Product.findById(productId);
+        //     if (!product) {
+        //         res.status(404).json({
+        //             success: false,
+        //             message: 'Product not found'
+        //         });
+        //         return;
+        //     }
+
+        //     // Ensure product belongs to the same business
+        //     if (product.businessId.toString() !== businessId) {
+        //         res.status(400).json({
+        //             success: false,
+        //             message: 'Product does not belong to the specified business'
+        //         });
+        //         return;
+        //     }
+        // }
+
+
+
+
+
+
+
+
+export const updateOrder = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const { id } = req.params;
+        const updates = req.body;
+
+        if (!mongoose.Types.ObjectId.isValid(id)) {
+            res.status(400).json({ success: false, message: 'Invalid order ID' });
+            return;
+        }
+
+        const order = await Order.findById(id);
+        if (!order) {
+            res.status(404).json({ success: false, message: 'Order not found' });
+            return;
+        }
+
+        const { price, quantity } = updates;
+
+        const priceChanged = price !== undefined && price !== order.price;
+        const quantityChanged = quantity !== undefined && quantity !== order.quantity;
+
+        if (!priceChanged && !quantityChanged) {
+            res.status(400).json({
+                success: false,
+                message: 'No changes detected in price or quantity'
+            });
+            return;
+        }
+
+        // Apply changes to order
+        if (priceChanged) order.price = price;
+        if (quantityChanged) order.quantity = quantity;
+
+        await order.save();
+
+        // Find the related transaction
+        const transaction = await Transaction.findOne({ orderId: order._id });
+        if (transaction) {
+            transaction.amount = order.price * order.quantity;
+            transaction.date = new Date(); // update the date
+            await transaction.save();
+        }
+
+        res.status(200).json({
+            success: true,
+            message: 'Order (and related transaction) updated successfully',
+            data: {
+                order,
+                transactionUpdated: !!transaction
+            }
+        });
+
+    } catch (error) {
+        console.error('Error updating order:', error);
+        res.status(500).json({ success: false, message: 'Internal server error' });
+    }
+};
