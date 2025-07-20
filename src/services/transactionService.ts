@@ -1,72 +1,128 @@
 import { CreateTransactionDTO, UpdateTransactionDTO } from "../dtos/transactionDTO";
 import Transaction from '../models/transaction.model';
 import Order from '../models/order.model';
-
+import mongoose, { ClientSession } from 'mongoose';
 
 export class TransactionService {
+    // CREATE TRANSACTION (explicit call)
+    async createTransactionForOrder(
+        orderId: string,
+        amount: number,
+        type: string = 'income',
+        session?: any
+    ): Promise<any> {
+        const sessionToUse = session || await mongoose.startSession();
+        if (!session) sessionToUse.startTransaction();
 
-    // CREATE A NEW TRANSACTION
-    async createTransaction(dto: CreateTransactionDTO) {
-        let orderId = dto.orderId;
+        try {
+            // const order = await Order.exists({ _id: orderId }).session(sessionToUse);
+            const order = await Order.exists({ _id: orderId, session: sessionToUse });
 
-        //match the orderId against the order 
-        const order = await Order.findById(orderId);
-        if (!order) throw new Error('OrderId not found');
+            if (!order) throw new Error('Order not found');
 
-        // checking for duplicates in the records 
-        const potentialDuplicate = await Transaction.findOne({ order });
-        if (potentialDuplicate) throw new Error('Potential duplicate transaction detected. A similar transaction exists in the records.');
+            const existing = await Transaction.findOne({ orderId, session:sessionToUse });
+            if (existing) throw new Error('Transaction already exists')
 
-        // Validate date
-        const transactionDate = new Date(dto.date);
-        if (isNaN(transactionDate.getTime())) throw new Error('Not a valid data format');
+            // const existing = await Transaction.findOne({ orderId }).session(sessionToUse);
+            // if (existing) throw new Error('Transaction already exists');
 
-        // Calculate amount directly
-        const amount = order.price * order.quantity;
-        if (amount <= 0) throw new Error('Calculated transaction amount must be greater than 0')
+            const transaction = await Transaction.create([{
+                type,
+                orderId,
+                amount,
+                date: new Date()
+            }], { session: sessionToUse });
 
-        const transactionData = new Transaction({
-            type: dto.type,
-            orderId,
-            amount,
-            date: transactionDate
-        });
-
-        const savedTransaction = await transactionData.save();
-
-        return savedTransaction;
+            if (!session) await sessionToUse.commitTransaction();
+            return transaction[0];
+        } catch (error) {
+            if (!session) await sessionToUse.abortTransaction();
+            throw error;
+        } finally {
+            if (!session) sessionToUse.endSession();
+        }
     }
 
-    // FIND A TRANSACTION BY TRANSACTION ID OR ORDER ID
+    // UPDATE TRANSACTION AMOUNT (explicit call)
+    async updateTransactionForOrder(
+        orderId: string,
+        newAmount: number,
+        session?: any
+    ) {
+        const sessionToUse = session || await mongoose.startSession();
+        if (!session) sessionToUse.startTransaction();
+
+        try {
+            const updated = await Transaction.findOneAndUpdate(
+                { orderId },
+                {
+                    amount: newAmount,
+                    date: new Date()
+                },
+                { new: true, session: sessionToUse }
+            );
+
+            if (!updated) {
+                throw new Error('No transaction found for this order');
+            }
+
+            if (!session) await sessionToUse.commitTransaction();
+            return updated;
+        } catch (error) {
+            if (!session) await sessionToUse.abortTransaction();
+            throw error;
+        } finally {
+            if (!session) sessionToUse.endSession();
+        }
+    }
+
     async findTransaction(query: { transactionId?: string, orderId?: string }) {
-        const transaction = await Transaction.findById(query)
-        if (!transaction) return [];
-
-        return transaction;
+        if (query.transactionId) {
+            return Transaction.findById(query.transactionId);
+        }
+        if (query.orderId) {
+            return Transaction.findOne({ orderId: query.orderId });
+        }
+        return null;
     }
 
-    // DELETE A TRANSACTION BY ID
-    async deleteTransaction(transactionId: string) {
-        const transaction = await Transaction.findById(transactionId)
-
-        if (!transaction) {
-            throw new Error("Transaction not found.")
-        }
-
-        const orderId = transaction.orderId;
-
-        // Check if the associated order exist
-        const orderExists = await Order.exists({ _id: orderId });
-
-        if (orderExists) {
-            throw new Error("Cannot delete transaction: corresponding order still exists.");
-        }
-
-        await Transaction.findByIdAndDelete(transactionId);
-        return "Transaction deleted because associated order does not exist.";
-    }
-
-    // async updateTransaction(transactionId: string) {
-
+    // async findTransactionByBusiness(query: { transactionId?: string, orderId?: string }) {
+    //     if (query.transactionId) {
+    //         return Transaction.findById(query.transactionId);
+    //     }
+    //     if (query.orderId) {
+    //         return Transaction.findOne({ orderId: query.orderId });
+    //     }
+    //     return null;
     // }
+
+    async deleteTransactionForOrder(orderId: string, session?: any) {
+        const sessionToUse = session || await mongoose.startSession();
+        if (!session) sessionToUse.startTransaction();
+
+        try {
+            const result = await Transaction.deleteOne({ orderId }, { session: sessionToUse });
+
+            if (result.deletedCount === 0) {
+                throw new Error('No transaction found for this order');
+            }
+
+            if (!session) await sessionToUse.commitTransaction();
+            return { success: true, orderId };
+        } catch (error) {
+            if (!session) await sessionToUse.abortTransaction();
+            throw error;
+        } finally {
+            if (!session) sessionToUse.endSession();
+        }
+    }
+
+    // Keep the existing deleteTransaction by ID method
+    async deleteTransaction(transactionId: string) {
+        const transaction = await Transaction.findByIdAndDelete(transactionId);
+        if (!transaction) {
+            throw new Error('Transaction not found');
+        }
+        return { success: true, transactionId };
+    }
 }

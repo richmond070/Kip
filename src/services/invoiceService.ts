@@ -2,7 +2,7 @@ import { CreateInvoiceDTO, UpdateInvoiceDTO } from "../dtos/invoiceDTO";
 import Transaction from '../models/transaction.model';
 import Order from '../models/order.model';
 import Invoice from '../models/invoice.model';
-import User from '../models/user.model';
+import User from '../models/customer.model';
 
 export class InoviceService {
     // CREATE AN INVOICE

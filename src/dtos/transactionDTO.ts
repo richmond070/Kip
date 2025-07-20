@@ -5,7 +5,7 @@ export const CreateTransactionSchema = z.object({
         required_error: 'type is required',
         invalid_type_error: 'type of transaction must be either income or expense'
     }),
-    // amount: z.number().nonnegative('Amount must be non-negative'),
+    amount: z.number().nonnegative('Amount must be non-negative'),
     date: z.date(),
     orderId: z.string()
 });

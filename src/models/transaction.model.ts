@@ -1,10 +1,10 @@
-import mongoose, { Document, Schema } from 'mongoose';
+import mongoose, { Document, Schema, Types } from 'mongoose';
 
-export interface ITransaction {
+export interface ITransaction extends Document {
     type: 'income' | 'expense';
     amount: number;
     date: Date;
-    orderId?: mongoose.Types.ObjectId;
+    orderId: mongoose.Types.ObjectId;
     // businessId: mongoose.Types.ObjectId;
 }
 

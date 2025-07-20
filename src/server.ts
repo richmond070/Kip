@@ -1,8 +1,7 @@
-import app from './app';
 import config from './configs/config';
 import mongoose from 'mongoose';
 import Logging from './utils/logging';
-import { errorHandler } from './middlewares/errorHandler';
+import app from './app';
 
 const startServer = async () => {
     try {

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const CreateUserSchema = z.object({
+export const CreateCustomerSchema = z.object({
     name: z.string().min(1, 'Name is required'),
     phone: z.string()
         .min(10, 'Phone number is too short')
@@ -12,8 +12,8 @@ export const CreateUserSchema = z.object({
     })
 });
 
-export type CreateUserDTO = z.infer<typeof CreateUserSchema>;
+export type CreateCustomerDTO = z.infer<typeof CreateCustomerSchema>;
 
 // Partial schema for update operations
-export const UpdateUserSchema = CreateUserSchema.partial();
-export type UpdateUserDTO = z.infer<typeof UpdateUserSchema>;
+export const UpdateCustomerSchema = CreateCustomerSchema.partial();
+export type UpdateCustomerDTO = z.infer<typeof UpdateCustomerSchema>;
