@@ -1,7 +1,4 @@
 .env
 .env.test
-package.json
-tsconfig.json
-src/configs/config.ts
-/note.txt
+note.txt
 node_modules
