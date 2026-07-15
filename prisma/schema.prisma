@@ -11,3 +11,76 @@ generator client {
 datasource db {
   provider = "postgresql"
 }
+
+model business {
+  phone     String   @id
+  pinHash   String
+  name      String
+  currency  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  products     product[]
+  orders       order[]
+  transactions transaction[]
+}
+
+model order {
+  id          String   @id @default(cuid())
+  businessId  String
+  business    business @relation(fields: [businessId], references: [phone])
+  productId   String
+  product     product  @relation(fields: [productId], references: [id])
+  quantity    Int
+  unitPrice   Decimal
+  totalAmount Decimal
+  buyerNote   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // ERD marks ORDER ||--|| TRANSACTION as mandatory 1:1 both ways.
+  // Modeled as optional+unique here (default assumption, not yet confirmed
+  // with you) because an Order must exist before its Transaction can be
+  // generated. See note at bottom of file.
+  transaction transaction?
+
+  @@index([businessId])
+  @@index([productId])
+}
+
+model product {
+  id           String   @id @default(cuid())
+  businessId   String
+  business     business @relation(fields: [businessId], references: [phone])
+  name         String
+  costPrice    Decimal
+  sellingPrice Decimal
+  quantity     Int
+  unit         String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  orders       order[]
+  transactions transaction[]
+
+  @@index([businessId])
+}
+
+model transaction {
+    id          String   @id @default(cuid())
+  businessId  String
+  business    business @relation(fields: [businessId], references: [phone])
+  type        String
+  direction   String
+  amount      Decimal
+  productId   String?
+  product     product? @relation(fields: [productId], references: [id])
+  orderId     String?  @unique
+  order       order?   @relation(fields: [orderId], references: [id])
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([businessId])
+  @@index([productId])
+}
