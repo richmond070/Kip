@@ -1,12 +1,12 @@
 import config from './configs/config';
-import mongoose from 'mongoose';
+import prisma from './lib/prisma';
 import Logging from './utils/logging';
 import app from './app';
 
 const startServer = async () => {
     try {
-        await mongoose.connect(config.mongoDBUri);
-        Logging.info(`Connected to MongoDB`);
+        await prisma.$connect();
+        Logging.info(`Connected to PostgreSQL`);
         app.listen(config.port, () => {
             Logging.info(`Server running on port ${config.port}`);
         });
