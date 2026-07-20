@@ -1,157 +1,141 @@
-import mongoose, { ClientSession } from 'mongoose';
-import Order from '../models/order.model';
-import Customer from '../models/customer.model';
-import { CreateOrderDTO } from '../dtos/orderDTO';
+import prisma from '../lib/prisma';
+import { OrderRepository } from '../repositories/order.repository';
+import { Prisma } from '../generated/prisma/client';
+import { ProductRepository } from '../repositories/product.repository';
+import { TransactionRepository } from '../repositories/transaction.repository';
+import orderRepository from '../repositories/order.repository';
+import productRepository from '../repositories/product.repository';
+import { CreateOrderDTO, UpdateOrderDTO } from '../dtos/orderDTO';
 
 export class OrderService {
-    // CREATE ORDER (no transaction coupling)
-    async createOrder(dto: CreateOrderDTO, session?: ClientSession) {
-        // Fix 1: Use mongoose.startSession() instead of Order.startSession()
-        const sessionToUse = session || await mongoose.startSession();
-        if (!session) sessionToUse.startTransaction();
+    // CREATE SALE — an Order plus its generated Transaction, created
+    // atomically along with the stock decrement. If any step fails, the
+    // whole thing rolls back: no orphaned Order, no orphaned stock change.
+    async createSale(dto: CreateOrderDTO) {
+        const product = await productRepository.findById(dto.productId);
+        if (!product) throw new Error('Product not found.');
+        if (product.businessId !== dto.businessId) {
+            throw new Error('Product does not belong to this business.');
+        }
+        if (product.quantity < dto.quantity) {
+            throw new Error(`Insufficient stock: only ${product.quantity} ${product.unit} available.`);
+        }
 
-        try {
-            // Fix 2: Pass session as option, not chained method
-            let customer = await Customer.findOne(
-                { phone: dto.customerPhone },
-                null,
-                { session: sessionToUse }
-            );
+        const totalAmount = dto.quantity * dto.unitPrice;
 
-            if (!customer) {
-                customer = new Customer({ phone: dto.customerPhone });
-                await customer.save({ session: sessionToUse });
-            }
+        return prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+            const orderRepo = new OrderRepository(tx);
+            const productRepo = new ProductRepository(tx);
+            const transactionRepo = new TransactionRepository(tx);
 
-            const order = new Order({
-                ...dto,
-                customerId: customer._id
+            const order = await orderRepo.create({
+                business: { connect: { phone: dto.businessId } },
+                product: { connect: { id: dto.productId } },
+                quantity: dto.quantity,
+                unitPrice: dto.unitPrice,
+                totalAmount,
+                buyerNote: dto.buyerNote,
             });
 
-            const savedOrder = await order.save({ session: sessionToUse });
+            await productRepo.decrementStock(dto.productId, dto.quantity);
 
-            if (!session) {
-                await sessionToUse.commitTransaction();
-                await sessionToUse.endSession();
-            }
+            const transaction = await transactionRepo.create({
+                business: { connect: { phone: dto.businessId } },
+                type: 'sale',
+                direction: 'in',
+                amount: totalAmount,
+                product: { connect: { id: dto.productId } },
+                order: { connect: { id: order.id } },
+                description: dto.buyerNote,
+            });
 
-            return {
-                order: savedOrder,
-                transactionData: {
-                    amount: dto.price * dto.quantity,
-                    orderId: savedOrder._id
-                }
-            };
-        } catch (error) {
-            if (!session) {
-                await sessionToUse.abortTransaction();
-                await sessionToUse.endSession();
-            }
-            throw error;
-        }
-    }
-
-    // UPDATE ORDER (no transaction coupling)
-    async updateOrder(id: string, updates: Partial<CreateOrderDTO>, session?: ClientSession) {
-        // Fix 1: Use mongoose.startSession() instead of Order.startSession()
-        const sessionToUse = session || await mongoose.startSession();
-        if (!session) sessionToUse.startTransaction();
-
-        try {
-            const updatedOrder = await Order.findByIdAndUpdate(
-                id,
-                { ...updates, updatedAt: new Date() },
-                {
-                    new: true,
-                    runValidators: true,
-                    session: sessionToUse  // Fix 2: Pass session as option
-                }
-            );
-
-            if (!updatedOrder) {
-                throw new Error('Order not found');
-            }
-
-            if (!session) {
-                await sessionToUse.commitTransaction();
-                await sessionToUse.endSession();
-            }
-
-            const requiresTransactionUpdate = updates.price !== undefined || updates.quantity !== undefined;
-            const newAmount = requiresTransactionUpdate ?
-                (updates.price || updatedOrder.price) * (updates.quantity || updatedOrder.quantity) :
-                undefined;
-
-            return {
-                order: updatedOrder,
-                requiresTransactionUpdate,
-                newAmount
-            };
-        } catch (error) {
-            if (!session) {
-                await sessionToUse.abortTransaction();
-                await sessionToUse.endSession();
-            }
-            throw error;
-        }
-    }
-
-    async getOrdersByUser(customerInfo: { phone?: string; customerId?: string }) {
-        let customer;
-
-        if (customerInfo.customerId) {
-            // If we have customerId, we can skip customer lookup
-            return await Order.find({ customerId: customerInfo.customerId });
-        }
-
-        if (customerInfo.phone) {
-            customer = await Customer.findOne({ phone: customerInfo.phone });
-            if (!customer) return [];
-            return await Order.find({ customerId: customer._id });
-        }
-
-        return [];
-    }
-
-    async getOrdersByDate(date: Date) {
-        const startDate = new Date(date.setHours(0, 0, 0, 0));
-        const endDate = new Date(date.setHours(23, 59, 59, 999));
-
-        return await Order.find({
-            createdAt: { $gte: startDate, $lte: endDate }
+            return { order, transaction };
         });
     }
 
-    async deleteOrder(id: string, session?: ClientSession) {
-        // Fix 1: Use mongoose.startSession() instead of Order.startSession()
-        const sessionToUse = session || await mongoose.startSession();
-        if (!session) sessionToUse.startTransaction();
+    async getOrderById(id: string) {
+        const order = await orderRepository.findById(id);
+        if (!order) throw new Error('Order not found.');
+        return order;
+    }
 
-        try {
-            const deletedOrder = await Order.findByIdAndDelete(id, {
-                session: sessionToUse  // Fix 2: Pass session as option
+    async getOrdersByBusiness(businessId: string) {
+        return orderRepository.findManyByBusiness(businessId);
+    }
+
+    // UPDATE — quantity/unitPrice changes ripple into stock and the linked
+    // Transaction's amount, so this stays atomic too. Simplification: this
+    // does not currently support switching an order to a different product.
+    async updateOrder(id: string, updates: UpdateOrderDTO) {
+        const existing = await orderRepository.findById(id);
+        if (!existing) throw new Error('Order not found.');
+
+        const newQuantity = updates.quantity ?? existing.quantity;
+        const newUnitPrice = updates.unitPrice ?? Number(existing.unitPrice);
+        const quantityDelta = newQuantity - existing.quantity;
+        const newTotalAmount = newQuantity * newUnitPrice;
+
+        return prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+            const orderRepo = new OrderRepository(tx);
+            const productRepo = new ProductRepository(tx);
+            const transactionRepo = new TransactionRepository(tx);
+
+            if (quantityDelta !== 0) {
+                if (quantityDelta > 0) {
+                    const product = await productRepo.findById(existing.productId);
+                    if (!product || product.quantity < quantityDelta) {
+                        throw new Error('Insufficient stock to increase order quantity.');
+                    }
+                    await productRepo.decrementStock(existing.productId, quantityDelta);
+                } else {
+                    await productRepo.incrementStock(existing.productId, Math.abs(quantityDelta));
+                }
+            }
+
+            const order = await tx.order.update({
+                where: { id },
+                data: {
+                    quantity: newQuantity,
+                    unitPrice: newUnitPrice,
+                    totalAmount: newTotalAmount,
+                    buyerNote: updates.buyerNote,
+                },
             });
 
-            if (!deletedOrder) {
-                throw new Error('Order not found');
+            const existingTransaction = await transactionRepo.findByOrderId(id);
+            const transaction = existingTransaction
+                ? await tx.transaction.update({
+                    where: { id: existingTransaction.id },
+                    data: { amount: newTotalAmount },
+                })
+                : null;
+
+            return { order, transaction };
+        });
+    }
+
+    // DELETE — restores stock and removes the linked Transaction (a sale
+    // being deleted means it never happened, ledger-wise) before removing
+    // the Order itself.
+    async deleteOrder(id: string) {
+        const existing = await orderRepository.findById(id);
+        if (!existing) throw new Error('Order not found.');
+
+        return prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+            const productRepo = new ProductRepository(tx);
+            const transactionRepo = new TransactionRepository(tx);
+
+            await productRepo.incrementStock(existing.productId, existing.quantity);
+
+            const linkedTransaction = await transactionRepo.findByOrderId(id);
+            if (linkedTransaction) {
+                await tx.transaction.delete({ where: { id: linkedTransaction.id } });
             }
 
-            if (!session) {
-                await sessionToUse.commitTransaction();
-                await sessionToUse.endSession();
-            }
-
-            return {
-                deletedOrder,
-                requiresTransactionDeletion: true,
-                orderId: deletedOrder._id
-            };
-        } catch (error) {
-            if (!session) {
-                await sessionToUse.abortTransaction();
-                await sessionToUse.endSession();
-            }
-            throw error;
-        }
+            const deletedOrder = await tx.order.delete({ where: { id } });
+            return { deletedOrder };
+        });
     }
 }
+
+export default new OrderService();

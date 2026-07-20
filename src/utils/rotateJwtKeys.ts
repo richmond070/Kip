@@ -1,6 +1,6 @@
-// utils/rotateJwtKey.ts
+// utils/rotateJwtKeys.ts
 import crypto from "crypto";
-import { JwtSecret } from "../models/JwtSecret.model";
+import jwtSecretRepository from "../repositories/jwtSecret.repository";
 
 // Generate a 256-bit secret
 function generateSecret(): string {
@@ -8,14 +8,13 @@ function generateSecret(): string {
 }
 
 export async function rotateJwtKey() {
-    const latest = await JwtSecret.findOne().sort({ version: -1 });
+    const latest = await jwtSecretRepository.findLatest();
     const newVersion = latest ? latest.version + 1 : 1;
 
-    const newSecret = new JwtSecret({
+    await jwtSecretRepository.create({
         key: generateSecret(),
         version: newVersion,
     });
 
-    await newSecret.save();
     console.log(`🔐 JWT key rotated to version ${newVersion}`);
 }

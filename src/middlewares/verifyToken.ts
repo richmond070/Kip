@@ -1,9 +1,9 @@
 // middleware/verifyToken.ts
 import jwt from "jsonwebtoken";
-import { JwtSecret } from "../models/JwtSecret.model";
+import jwtSecretRepository from "../repositories/jwtSecret.repository";
 
 export async function verifyToken(token: string) {
-    const secrets = await JwtSecret.find().sort({ version: -1 }).limit(2); // current + previous
+    const secrets = await jwtSecretRepository.findLatestTwo(); // current + previous
 
     for (const secret of secrets) {
         try {

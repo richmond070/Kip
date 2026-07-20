@@ -1,8 +1,10 @@
 import prisma from '../lib/prisma';
 import { PrismaClient, Prisma, order } from '../generated/prisma/client';
 
+type Client = PrismaClient | Prisma.TransactionClient;
+
 export class OrderRepository {
-    constructor(private readonly client: PrismaClient = prisma) { }
+    constructor(private readonly client: Client = prisma) { }
 
     async findById(id: string): Promise<order | null> {
         return this.client.order.findUnique({ where: { id } });

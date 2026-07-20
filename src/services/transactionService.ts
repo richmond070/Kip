@@ -1,128 +1,96 @@
-import { CreateTransactionDTO, UpdateTransactionDTO } from "../dtos/transactionDTO";
-import Transaction from '../models/transaction.model';
-import Order from '../models/order.model';
-import mongoose, { ClientSession } from 'mongoose';
+import prisma from '../lib/prisma';
+import { ProductRepository } from '../repositories/product.repository';
+import { TransactionRepository } from '../repositories/transaction.repository';
+import { Prisma } from '../generated/prisma/client';
+import transactionRepository from '../repositories/transaction.repository';
+import productRepository from '../repositories/product.repository';
+import {
+    CreateTransactionDTO,
+    RecordPurchaseDTO,
+    RecordExpenseDTO,
+} from '../dtos/transactionDTO';
 
 export class TransactionService {
-    // CREATE TRANSACTION (explicit call)
-    async createTransactionForOrder(
-        orderId: string,
-        amount: number,
-        type: string = 'income',
-        session?: any
-    ): Promise<any> {
-        const sessionToUse = session || await mongoose.startSession();
-        if (!session) sessionToUse.startTransaction();
-
-        try {
-            // const order = await Order.exists({ _id: orderId }).session(sessionToUse);
-            const order = await Order.exists({ _id: orderId, session: sessionToUse });
-
-            if (!order) throw new Error('Order not found');
-
-            const existing = await Transaction.findOne({ orderId, session:sessionToUse });
-            if (existing) throw new Error('Transaction already exists')
-
-            // const existing = await Transaction.findOne({ orderId }).session(sessionToUse);
-            // if (existing) throw new Error('Transaction already exists');
-
-            const transaction = await Transaction.create([{
-                type,
-                orderId,
-                amount,
-                date: new Date()
-            }], { session: sessionToUse });
-
-            if (!session) await sessionToUse.commitTransaction();
-            return transaction[0];
-        } catch (error) {
-            if (!session) await sessionToUse.abortTransaction();
-            throw error;
-        } finally {
-            if (!session) sessionToUse.endSession();
+    // RECORD PURCHASE — restocks a Product and logs the ledger entry
+    // atomically. This is the "Record purchase or expense" -> "Stock
+    // increases" path in kip_bookkeeping_flow.png; it never touches Order.
+    async recordPurchase(dto: RecordPurchaseDTO) {
+        const product = await productRepository.findById(dto.productId);
+        if (!product) throw new Error('Product not found.');
+        if (product.businessId !== dto.businessId) {
+            throw new Error('Product does not belong to this business.');
         }
+
+        return prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+            const productRepo = new ProductRepository(tx);
+            const transactionRepo = new TransactionRepository(tx);
+
+            await productRepo.incrementStock(dto.productId, dto.quantity);
+
+            return transactionRepo.create({
+                business: { connect: { phone: dto.businessId } },
+                type: 'purchase',
+                direction: 'out',
+                amount: dto.amount,
+                product: { connect: { id: dto.productId } },
+                description: dto.description,
+            });
+        });
     }
 
-    // UPDATE TRANSACTION AMOUNT (explicit call)
-    async updateTransactionForOrder(
-        orderId: string,
-        newAmount: number,
-        session?: any
-    ) {
-        const sessionToUse = session || await mongoose.startSession();
-        if (!session) sessionToUse.startTransaction();
-
-        try {
-            const updated = await Transaction.findOneAndUpdate(
-                { orderId },
-                {
-                    amount: newAmount,
-                    date: new Date()
-                },
-                { new: true, session: sessionToUse }
-            );
-
-            if (!updated) {
-                throw new Error('No transaction found for this order');
-            }
-
-            if (!session) await sessionToUse.commitTransaction();
-            return updated;
-        } catch (error) {
-            if (!session) await sessionToUse.abortTransaction();
-            throw error;
-        } finally {
-            if (!session) sessionToUse.endSession();
-        }
+    // RECORD EXPENSE — a plain ledger entry, no stock impact, no Order.
+    // (e.g. rent, a delivery fee.) productId is optional per the flow
+    // diagram's "Stock increases — only for purchases."
+    async recordExpense(dto: RecordExpenseDTO) {
+        return transactionRepository.create({
+            business: { connect: { phone: dto.businessId } },
+            type: 'expense',
+            direction: 'out',
+            amount: dto.amount,
+            product: dto.productId ? { connect: { id: dto.productId } } : undefined,
+            description: dto.description,
+        });
     }
 
-    async findTransaction(query: { transactionId?: string, orderId?: string }) {
-        if (query.transactionId) {
-            return Transaction.findById(query.transactionId);
-        }
-        if (query.orderId) {
-            return Transaction.findOne({ orderId: query.orderId });
-        }
-        return null;
+    // Generic ledger create — used for anything that doesn't fit the two
+    // dedicated flows above (or by tests/admin tooling).
+    async createTransaction(dto: CreateTransactionDTO) {
+        return transactionRepository.create({
+            business: { connect: { phone: dto.businessId } },
+            type: dto.type,
+            direction: dto.direction,
+            amount: dto.amount,
+            product: dto.productId ? { connect: { id: dto.productId } } : undefined,
+            order: dto.orderId ? { connect: { id: dto.orderId } } : undefined,
+            description: dto.description,
+        });
     }
 
-    // async findTransactionByBusiness(query: { transactionId?: string, orderId?: string }) {
-    //     if (query.transactionId) {
-    //         return Transaction.findById(query.transactionId);
-    //     }
-    //     if (query.orderId) {
-    //         return Transaction.findOne({ orderId: query.orderId });
-    //     }
-    //     return null;
-    // }
-
-    async deleteTransactionForOrder(orderId: string, session?: any) {
-        const sessionToUse = session || await mongoose.startSession();
-        if (!session) sessionToUse.startTransaction();
-
-        try {
-            const result = await Transaction.deleteOne({ orderId }, { session: sessionToUse });
-
-            if (result.deletedCount === 0) {
-                throw new Error('No transaction found for this order');
-            }
-
-            if (!session) await sessionToUse.commitTransaction();
-            return { success: true, orderId };
-        } catch (error) {
-            if (!session) await sessionToUse.abortTransaction();
-            throw error;
-        } finally {
-            if (!session) sessionToUse.endSession();
-        }
+    async getTransactionById(id: string) {
+        const transaction = await transactionRepository.findById(id);
+        if (!transaction) throw new Error('Transaction not found.');
+        return transaction;
     }
 
-    // Keep the existing deleteTransaction by ID method
-    async deleteTransaction(transactionId: string) {
-        const transaction = await Transaction.findByIdAndDelete(transactionId);
-        if (!transaction) {
-            throw new Error('Transaction not found');
+    async getTransactionByOrderId(orderId: string) {
+        return transactionRepository.findByOrderId(orderId);
+    }
+
+    async getTransactionsByBusiness(businessId: string) {
+        return transactionRepository.findManyByBusiness(businessId);
+    }
+
+    // Deleting an order-linked (sale) transaction directly would leave its
+    // Order orphaned — that has to go through orderService.deleteOrder
+    // instead, which handles the stock restore + linked delete atomically.
+    async deleteTransaction(id: string) {
+        const transaction = await transactionRepository.findById(id);
+        if (!transaction) throw new Error('Transaction not found.');
+        if (transaction.orderId) {
+            throw new Error('This transaction is linked to an order — delete the order instead.');
         }
-        return { success: true, transactionId };
+        return prisma.transaction.delete({ where: { id } });
     }
 }
+
+export default new TransactionService();

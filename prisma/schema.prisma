@@ -84,3 +84,18 @@ model transaction {
   @@index([businessId])
   @@index([productId])
 }
+
+
+// JwtSecret — not in the ERD, but live functionality: rotating, versioned
+// JWT signing keys (ported 1:1 from the old Mongoose JwtSecret model).
+// verifyToken checks incoming tokens against the current key + previous
+// key (grace period during rotation); rotateScheduler creates a new one
+// every 2 days.
+model jwtSecret {
+  id        String   @id @default(cuid())
+  key       String
+  version   Int      @unique
+  createdAt DateTime @default(now())
+
+  @@index([version])
+}

@@ -1,42 +1,54 @@
-import Business from '../models/business.model';
-import { CreateBusinessDTO, UpdateBusinessDTO } from '../dtos/businessDTO';
-
+import businessRepository from '../repositories/business.repository';
+import { hashPassword, comparePassword } from '../utils/hash';
+import { CreateBusinessDTO, UpdateBusinessDTO, LoginBusinessDTO } from '../dtos/businessDTO';
 
 export class BusinessService {
-    // CREATE BUSINESS
+    // REGISTER — phone is the natural PK, so this doubles as "does this
+    // phone already have a business" check.
     async createBusiness(dto: CreateBusinessDTO) {
-        const business = new Business(dto);
-        return await business.save();
-    }
-    //DELETE BUSINESS BY ID
-    async deleteBusiness(businessId: string) {
-        const result = await Business.findByIdAndDelete(businessId);
-        if (!result) throw new Error('User not found');
-        return result;
+        const alreadyExists = await businessRepository.exists(dto.phone);
+        if (alreadyExists) throw new Error('A business is already registered with this phone number.');
+
+        const pinHash = await hashPassword(dto.pin);
+
+        return businessRepository.create({
+            phone: dto.phone,
+            name: dto.name,
+            currency: dto.currency,
+            pinHash,
+        });
     }
 
-    //UPDATE BUSINESS
-    async updateBusinessName(businessId: string, updates: UpdateBusinessDTO) {
-        const updatedName = await Business.findByIdAndUpdate(
-            businessId,
-            { ...updates },
-            { new: true, runValidators: true }
-        )
-        if (!updatedName) throw new Error('User not found or update failed');
-        return updatedName;
+    // LOGIN — verify phone + PIN, return the business record on success.
+    // Actual session/token issuance (JWT) stays in the auth middleware/route
+    // layer, not here.
+    async loginWithPhoneAndPin(dto: LoginBusinessDTO) {
+        const business = await businessRepository.findByPhone(dto.phone);
+        if (!business) throw new Error('No business found with this phone number.');
+
+        const pinMatches = await comparePassword(dto.pin, business.pinHash);
+        if (!pinMatches) throw new Error('Incorrect PIN.');
+
+        return business;
     }
 
-    //GET BUSINESS BY ID
-    async getBusinessById(businessId: string) {
-        const business = Business.findById(businessId)
-        return business
+    async getBusinessByPhone(phone: string) {
+        const business = await businessRepository.findByPhone(phone);
+        if (!business) throw new Error('Business not found.');
+        return business;
     }
 
-    // LOGIN BUSINESS BY PHONE NUMBER AND VALIDATE THE PHONE NUMBER BY PASSING A CODE 
-    async loginBusinessByPhone(phone: string) {
-        const phoneNumber = await Business.findOne({ phone })
-        if (!phoneNumber) throw new Error('Account not found with this phone number');
-        // Here you would typically send a verification code to the phone number
-        return phoneNumber;
+    async updateBusiness(phone: string, updates: UpdateBusinessDTO) {
+        const exists = await businessRepository.exists(phone);
+        if (!exists) throw new Error('Business not found.');
+        return businessRepository.update(phone, updates);
+    }
+
+    async deleteBusiness(phone: string) {
+        const exists = await businessRepository.exists(phone);
+        if (!exists) throw new Error('Business not found.');
+        return businessRepository.delete(phone);
     }
 }
+
+export default new BusinessService();
