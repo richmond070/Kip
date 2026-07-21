@@ -13,9 +13,12 @@ const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL });
 // if this is instantiated inline in services/controllers — each one opens
 // its own connection pool against Postgres. Import `prisma` from here
 // everywhere instead of `new PrismaClient()`.
+
+const shouldLogQueries = process.env.DEBUG_PRISMA_QUERIES === 'true';
+
 const prisma = new PrismaClient({
     adapter,
-    log: process.env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error'],
+    log: shouldLogQueries ? ['query', 'error', 'warn'] : ['error'],
 });
 
 export default prisma;

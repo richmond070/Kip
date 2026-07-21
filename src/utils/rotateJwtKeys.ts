@@ -16,5 +16,17 @@ export async function rotateJwtKey() {
         version: newVersion,
     });
 
-    console.log(`🔐 JWT key rotated to version ${newVersion}`);
+    console.log(` JWT key rotated to version ${newVersion}`);
+}
+
+// Bootstrap — a fresh database has no keys at all, and scheduleKeyRotation()
+// only fires on its cron schedule (every 2 days), never immediately. Without
+// this, getCurrentJwtKey()/verifyToken() have nothing to sign or verify
+// against until the first scheduled rotation actually runs.
+export async function ensureJwtSecretExists() {
+    const existing = await jwtSecretRepository.findLatest();
+    if (!existing) {
+        console.log("No JWT secret found — creating the first one.");
+        await rotateJwtKey();
+    }
 }

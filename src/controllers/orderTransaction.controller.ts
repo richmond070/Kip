@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import orderService from '../services/orderService';
 import transactionService from '../services/transactionService';
 import { CreateOrderSchema, UpdateOrderSchema } from '../dtos/orderDTO';
+import { RecordPurchaseSchema, RecordExpenseSchema } from '../dtos/transactionDTO';
 
 export class OrderTransactionController {
     async createOrderWithTransaction(req: Request, res: Response) {
@@ -75,6 +76,55 @@ export class OrderTransactionController {
         } catch (error) {
             const err = error as Error;
             res.status(404).json({ error: err.message });
+        }
+    }
+
+    async listOrders(req: Request, res: Response) {
+        const businessId = (req as any).user.businessId as string;
+        const orders = await orderService.getOrdersByBusiness(businessId);
+        res.status(200).json(orders);
+    }
+
+    async listTransactions(req: Request, res: Response) {
+        const businessId = (req as any).user.businessId as string;
+        const transactions = await transactionService.getTransactionsByBusiness(businessId);
+        res.status(200).json(transactions);
+    }
+
+    // "Record purchase or expense" — restock (recordPurchase) and the plain
+    // expense (recordExpense) branches from kip_bookkeeping_flow.png. These
+    // never touch Order, unlike the sale flow above.
+    async recordPurchase(req: Request, res: Response) {
+        const businessId = (req as any).user.businessId as string;
+        const parse = RecordPurchaseSchema.safeParse({ ...req.body, businessId });
+        if (!parse.success) {
+            res.status(400).json({ error: parse.error.flatten() });
+            return;
+        }
+
+        try {
+            const transaction = await transactionService.recordPurchase(parse.data);
+            res.status(201).json(transaction);
+        } catch (error) {
+            const err = error as Error;
+            res.status(400).json({ error: err.message });
+        }
+    }
+
+    async recordExpense(req: Request, res: Response) {
+        const businessId = (req as any).user.businessId as string;
+        const parse = RecordExpenseSchema.safeParse({ ...req.body, businessId });
+        if (!parse.success) {
+            res.status(400).json({ error: parse.error.flatten() });
+            return;
+        }
+
+        try {
+            const transaction = await transactionService.recordExpense(parse.data);
+            res.status(201).json(transaction);
+        } catch (error) {
+            const err = error as Error;
+            res.status(400).json({ error: err.message });
         }
     }
 }

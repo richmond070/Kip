@@ -13,9 +13,16 @@ export class ProductService {
         });
     }
 
-    async getProductById(id: string) {
+    // businessId is required on every read/write below so one business can
+    // never fetch, edit, or delete another business's product just by
+    // guessing/enumerating an id. Not found and "not yours" both return the
+    // same "Product not found" error — existence of another business's
+    // product id shouldn't be leakable either.
+    async getProductById(id: string, businessId: string) {
         const product = await productRepository.findById(id);
-        if (!product) throw new Error('Product not found.');
+        if (!product || product.businessId !== businessId) {
+            throw new Error('Product not found.');
+        }
         return product;
     }
 
@@ -23,15 +30,19 @@ export class ProductService {
         return productRepository.findManyByBusiness(businessId);
     }
 
-    async updateProduct(id: string, updates: UpdateProductDTO) {
+    async updateProduct(id: string, businessId: string, updates: UpdateProductDTO) {
         const existing = await productRepository.findById(id);
-        if (!existing) throw new Error('Product not found.');
+        if (!existing || existing.businessId !== businessId) {
+            throw new Error('Product not found.');
+        }
         return productRepository.update(id, updates);
     }
 
-    async deleteProduct(id: string) {
+    async deleteProduct(id: string, businessId: string) {
         const existing = await productRepository.findById(id);
-        if (!existing) throw new Error('Product not found.');
+        if (!existing || existing.businessId !== businessId) {
+            throw new Error('Product not found.');
+        }
         return productRepository.delete(id);
     }
 
@@ -39,9 +50,11 @@ export class ProductService {
     // the automatic adjustments that happen inside orderService (sales) and
     // transactionService (purchases), which run atomically alongside a
     // ledger entry. This is a direct, un-ledgered correction.
-    async adjustStock(id: string, delta: number) {
+    async adjustStock(id: string, businessId: string, delta: number) {
         const existing = await productRepository.findById(id);
-        if (!existing) throw new Error('Product not found.');
+        if (!existing || existing.businessId !== businessId) {
+            throw new Error('Product not found.');
+        }
 
         if (delta >= 0) {
             return productRepository.incrementStock(id, delta);

@@ -13,5 +13,11 @@ orderTransactions.put('/orders-with-transaction/:orderId', controller.updateOrde
 orderTransactions.delete('/orders-with-transaction/:orderId', controller.deleteOrderWithTransaction);
 
 // Independent operations
+orderTransactions.get('/orders', controller.listOrders);
 orderTransactions.get('/orders/:id', controller.getOrder);
+orderTransactions.get('/transactions', controller.listTransactions);
 orderTransactions.get('/transactions/:id', controller.getTransaction);
+
+// Purchase / expense — never touch Order, see kip_bookkeeping_flow.png
+orderTransactions.post('/transactions/purchase', controller.recordPurchase);
+orderTransactions.post('/transactions/expense', controller.recordExpense);
