@@ -1,14 +1,16 @@
 import { errorHandler } from './middlewares/errorHandler';
 import express from 'express';
-// import { user } from './routes/customerRouter';
-import { orderTransactions } from './routes/orderTransactionRouter'
+import { orderTransactions } from './routes/orderTransaction.router'
+import { businessRouter } from './routes/business.router'
+import { productRouter } from './routes/product.router'
 
 const app = express();
 
 app.use(express.json());
 
 // Routes
-// app.use('/api/v1', user);
+app.use('/api/v1/business', businessRouter);
+app.use('/api/v1/products', productRouter);
 app.use('/api/v1', orderTransactions);
 app.get("/", async (req: express.Request, res: express.Response) => {
     try {

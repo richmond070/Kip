@@ -53,9 +53,11 @@ export class OrderService {
         });
     }
 
-    async getOrderById(id: string) {
+    async getOrderById(id: string, businessId: string) {
         const order = await orderRepository.findById(id);
-        if (!order) throw new Error('Order not found.');
+        if (!order || order.businessId !== businessId) {
+            throw new Error('Order not found.');
+        }
         return order;
     }
 
@@ -66,9 +68,11 @@ export class OrderService {
     // UPDATE — quantity/unitPrice changes ripple into stock and the linked
     // Transaction's amount, so this stays atomic too. Simplification: this
     // does not currently support switching an order to a different product.
-    async updateOrder(id: string, updates: UpdateOrderDTO) {
+    async updateOrder(id: string, businessId: string, updates: UpdateOrderDTO) {
         const existing = await orderRepository.findById(id);
-        if (!existing) throw new Error('Order not found.');
+        if (!existing || existing.businessId !== businessId) {
+            throw new Error('Order not found.');
+        }
 
         const newQuantity = updates.quantity ?? existing.quantity;
         const newUnitPrice = updates.unitPrice ?? Number(existing.unitPrice);
@@ -117,9 +121,11 @@ export class OrderService {
     // DELETE — restores stock and removes the linked Transaction (a sale
     // being deleted means it never happened, ledger-wise) before removing
     // the Order itself.
-    async deleteOrder(id: string) {
+    async deleteOrder(id: string, businessId: string) {
         const existing = await orderRepository.findById(id);
-        if (!existing) throw new Error('Order not found.');
+        if (!existing || existing.businessId !== businessId) {
+            throw new Error('Order not found.');
+        }
 
         return prisma.$transaction(async (tx: Prisma.TransactionClient) => {
             const productRepo = new ProductRepository(tx);

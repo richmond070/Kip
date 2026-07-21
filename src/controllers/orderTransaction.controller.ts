@@ -5,7 +5,10 @@ import { CreateOrderSchema, UpdateOrderSchema } from '../dtos/orderDTO';
 
 export class OrderTransactionController {
     async createOrderWithTransaction(req: Request, res: Response) {
-        const parse = CreateOrderSchema.safeParse(req.body);
+        const businessId = (req as any).user.businessId as string;
+        // businessId always comes from the token, never the request body —
+        // overriding whatever (if anything) the client sent for it.
+        const parse = CreateOrderSchema.safeParse({ ...req.body, businessId });
         if (!parse.success) {
             res.status(400).json({ error: parse.error.flatten() });
             return;
@@ -30,8 +33,9 @@ export class OrderTransactionController {
         }
 
         try {
+            const businessId = (req as any).user.businessId as string;
             const { orderId } = req.params;
-            const { order, transaction } = await orderService.updateOrder(orderId, parse.data);
+            const { order, transaction } = await orderService.updateOrder(orderId, businessId, parse.data);
             res.status(200).json({ order, transaction });
         } catch (error) {
             const err = error as Error;
@@ -41,8 +45,9 @@ export class OrderTransactionController {
 
     async deleteOrderWithTransaction(req: Request, res: Response) {
         try {
+            const businessId = (req as any).user.businessId as string;
             const { orderId } = req.params;
-            const { deletedOrder } = await orderService.deleteOrder(orderId);
+            const { deletedOrder } = await orderService.deleteOrder(orderId, businessId);
             res.status(200).json({ deletedOrder });
         } catch (error) {
             const err = error as Error;
@@ -53,7 +58,8 @@ export class OrderTransactionController {
     // Independent operations
     async getOrder(req: Request, res: Response) {
         try {
-            const order = await orderService.getOrderById(req.params.id);
+            const businessId = (req as any).user.businessId as string;
+            const order = await orderService.getOrderById(req.params.id, businessId);
             res.status(200).json(order);
         } catch (error) {
             const err = error as Error;
@@ -63,7 +69,8 @@ export class OrderTransactionController {
 
     async getTransaction(req: Request, res: Response) {
         try {
-            const transaction = await transactionService.getTransactionById(req.params.id);
+            const businessId = (req as any).user.businessId as string;
+            const transaction = await transactionService.getTransactionById(req.params.id, businessId);
             res.status(200).json(transaction);
         } catch (error) {
             const err = error as Error;

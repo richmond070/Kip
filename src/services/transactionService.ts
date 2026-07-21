@@ -66,9 +66,11 @@ export class TransactionService {
         });
     }
 
-    async getTransactionById(id: string) {
+    async getTransactionById(id: string, businessId: string) {
         const transaction = await transactionRepository.findById(id);
-        if (!transaction) throw new Error('Transaction not found.');
+        if (!transaction || transaction.businessId !== businessId) {
+            throw new Error('Transaction not found.');
+        }
         return transaction;
     }
 
@@ -83,9 +85,11 @@ export class TransactionService {
     // Deleting an order-linked (sale) transaction directly would leave its
     // Order orphaned — that has to go through orderService.deleteOrder
     // instead, which handles the stock restore + linked delete atomically.
-    async deleteTransaction(id: string) {
+    async deleteTransaction(id: string, businessId: string) {
         const transaction = await transactionRepository.findById(id);
-        if (!transaction) throw new Error('Transaction not found.');
+        if (!transaction || transaction.businessId !== businessId) {
+            throw new Error('Transaction not found.');
+        }
         if (transaction.orderId) {
             throw new Error('This transaction is linked to an order — delete the order instead.');
         }

@@ -1,6 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import jwt from 'jsonwebtoken';
-import { getCurrentJwtKey } from '../utils/getJwtSecert';
+import { verifyToken } from './verifyToken';
 
 export const authenticate = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     const authHeader = req.headers.authorization;
@@ -11,10 +10,11 @@ export const authenticate = async (req: Request, res: Response, next: NextFuncti
     }
 
     try {
-        // define JWT secret dynamically
-        const jwtSecret = await getCurrentJwtKey();
         const token = authHeader.split(' ')[1];
-        const decoded = jwt.verify(token, jwtSecret!);
+        // Checks against current key + previous key, so a token issued just
+        // before rotation isn't instantly invalidated the moment
+        // rotateJwtKey() runs (every 2 days, see rotateJwtKeys.ts).
+        const decoded = await verifyToken(token);
         (req as any).user = decoded; // Attach decoded user info to req
         next();
     } catch (error) {
